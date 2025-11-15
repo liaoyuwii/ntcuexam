@@ -28,6 +28,34 @@ This exam consists of **3 problems** (p1, p2, and p3) worth **100 points total**
 
 **Objective**: Implement MNIST digit classification using Embedded Binary Neural Networks (EBNN) on a single ESP32 board.
 
+#### Implementation Guide
+
+1. **涵蓋檔案與流程**
+   - `src/client/p1_ebnn_mnist/main.cpp`: 透過 micro-ROS 初始化、訂閱 `/mnist_input_a`、呼叫 `ebnn_predict()`（或等效 API）完成推論，再發佈 `Prediction`。
+   - `src/host/src/srecruit_host/p1_ebnn_mnist.py`: 建立 ROS 2 節點，載入 50 張 MNIST 影像，依 `settings.toml` 中 `publisher.p1` 的速率發佈至 `/mnist_input_a`。
+   - `src/host/src/srecruit_host/settings.toml`: 依板子負載調整 `publisher.p1`，建議初期 8~10 img/s，確認穩定後逐步提高。
+
+2. **Client 端步驟**
+   - 初始化 micro-ROS：設定 Wi-Fi transport、建立 `rcl_node_t`、`rclc_executor_t`。
+   - 建立 `rcl_subscription_t` 監聽 `MnistImage`，在 callback 內：
+     1. 將 28×28 (784 bytes) 灰階資料轉成 EBNN 需要的格式（通常是 float/int8，視 `simple_mnist.h` 而定）。
+     2. 呼叫 `simple_mnist_predict(image_buf)` 取得 0-9 類別。
+     3. 填入 `Prediction` message（包含 `id`、`digit`），透過 `rcl_publisher_t` 發佈。
+   - 加入 watchdog/計時（可選）以估算 img/s，必要時減少動態配置、使用靜態 buffer。
+
+3. **Host 端步驟**
+   - 在 `p1_ebnn_mnist.py` 中：
+     - 使用 `rclpy.create_node()` 建立節點。
+     - 讀取 MNIST `.npy` 或 `.npz`（資料集位置在 `extra_packages/custom_msgs/data/`）。
+     - 設定 `QoSProfile(depth=10)` 並建立 publisher。
+     - 以 `create_timer(1.0/publisher_rate, timer_cb)` 逐張送出資料；記得附上 `id`。
+   - 驗證：啟動 node 後用 `pixi run ros2 topic echo /mnist_input_a` 檢查資料流。
+
+4. **測試與除錯**
+   - 上傳韌體並執行 micro-ROS agent 後，於另一終端執行 `pixi run judge -p 1`。
+   - 若未收到資料：確認 agent、Topic list (`pixi run ros2 topic list`)、以及 QoS 設定一致。
+   - 若精準率不足：檢查資料前處理、是否忘記正規化、或 `id` 是否一一對應。
+
 #### Task Details
 
 | Board  | Environment | Input Topic      | Input Type                     | Output Topic    | Output Type              |
